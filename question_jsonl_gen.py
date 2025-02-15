@@ -183,7 +183,7 @@ def question_jsonl_gen(args):
     for line in tqdm(datasets):
         line = json.loads(line)
         line_index = line_index + 1
-        image = args.dataset_path + args.dataset_prefix + line["image"]
+        image = os.path.join(args.dataset_path, args.dataset_prefix + line["image"])
         image = Image.open(image)
         image_tensor = image_processor.preprocess(image, return_tensors="pt")[
             "pixel_values"
@@ -282,17 +282,15 @@ if __name__ == "__main__":
     parser.add_argument("--image-folder", type=str, default="")
     parser.add_argument("--question-file", type=str, default="./C3L/question.jsonl")
     parser.add_argument("--dataset-file", type=str, default="./C3L/dataset.jsonl")
-    parser.add_argument(
-        "--dataset-path", type=str, default="./coco2014/images/train2014/"
-    )
+    parser.add_argument("--dataset-path", type=str, default="./dataset/data")
     parser.add_argument("--dataset-prefix", type=str, default="COCO_train2014_")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
-    parser.add_argument("--num-chunks", type=int, default=10000)
+    parser.add_argument("--num-chunks", type=int, default=10)
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
-    parser.add_argument("--load-4bit", type=bool, default=False)
+    parser.add_argument("--load-4bit", type=bool, default=True)
     args = parser.parse_args()
 
     question_jsonl_gen(args)

@@ -157,9 +157,7 @@ if __name__ == "__main__":
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--image-folder", type=str, default="")
     parser.add_argument("--question-file", type=str, default="./C3L/question.jsonl")
-    parser.add_argument(
-        "--dataset-path", type=str, default="./coco2014/images/train2014/"
-    )
+    parser.add_argument("--dataset-path", type=str, default="./dataset/data")
     parser.add_argument("--dataset-prefix", type=str, default="COCO_train2014_")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
     parser.add_argument("--num-chunks", type=int, default=1)
