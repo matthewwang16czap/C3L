@@ -285,7 +285,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset-path", type=str, default="./dataset/data")
     parser.add_argument("--dataset-prefix", type=str, default="COCO_train2014_")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
-    parser.add_argument("--num-chunks", type=int, default=10)
+    parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--top_p", type=float, default=None)
