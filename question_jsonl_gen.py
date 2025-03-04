@@ -98,6 +98,25 @@ def validate_data(data):
         return False, str(e)
 
 
+def get_last_index(question_file):
+    """Get the last valid index from the saved file."""
+    if not os.path.exists(question_file):
+        return 0  # If file doesn't exist, start from index 0
+
+    last_index = -1  # Default to -1, so first entry will be 0
+
+    with open(question_file, "r") as qs_file:
+        for line in qs_file:
+            try:
+                entry = json.loads(line.strip())  # Load last valid JSON line
+                if "index" in entry:
+                    last_index = max(last_index, entry["index"])  # Track max index
+            except json.JSONDecodeError:
+                continue  # Skip malformed lines
+
+    return last_index + 1  # Next index to continue from
+
+
 def question_jsonl_gen(args):
     # Model
     disable_torch_init()
@@ -106,21 +125,29 @@ def question_jsonl_gen(args):
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         model_path, args.model_base, model_name, load_4bit=args.load_4bit
     )
+
     # Dataset
     with open(os.path.expanduser(args.dataset_file), "r") as f:
         datasets = f.readlines()
     datasets = get_chunk(datasets, args.num_chunks, args.chunk_idx)
+
     question_file = os.path.expanduser(args.question_file)
     os.makedirs(os.path.dirname(question_file), exist_ok=True)
-    with open(args.question_file, "w") as qs_file:
-        qs_file = open(question_file, "w")
-        line_index = 0
-        for line in tqdm(datasets):
-            line = json.loads(line)
-            line_index = line_index + 1
+
+    # Get last processed index
+    start_index = get_last_index(question_file)
+
+    # Open the file in append mode
+    with open(question_file, "a") as qs_file:
+        for line_idx, line in enumerate(
+            tqdm(datasets[start_index:], total=len(datasets), initial=start_index),
+            start=start_index,
+        ):
+            data_sample = json.loads(line)
+
             image = os.path.join(
                 Path(args.dataset_path).expanduser(),
-                args.dataset_prefix + line["image"],
+                args.dataset_prefix + data_sample["image"],
             )
             image = Image.open(image)
             image_tensor = image_processor.preprocess(image, return_tensors="pt")[
@@ -130,16 +157,13 @@ def question_jsonl_gen(args):
             # 2 stages' max token size
             max_new_tokens = [128, 512]
 
-            multi_choice_data = {}
-            multi_choice_data["id"] = line["id"]
-            multi_choice_data["image"] = line["image"]
-            multi_choice_data["conversations"] = []
+            conversations = []
 
             conv = conv_templates[args.conv_mode].copy()
 
-            # get first stage inference output
+            # Get first stage inference output
             description = inference(
-                "Generate descriptions based on the image in one to three complete sentence.",
+                "Generate descriptions based on the image in one to three complete sentences.",
                 image,
                 image_tensor,
                 tokenizer,
@@ -148,13 +172,13 @@ def question_jsonl_gen(args):
                 max_new_tokens[0],
             )
 
-            # remove imcomplete sentence
+            # Remove incomplete sentence
             if description[-1] != ".":
                 description = description.split(description.split(".")[-1])[0]
 
             conv.messages[-1][-1] = description
 
-            # get second stage inference output
+            # Get second stage inference output
             outputs = inference(
                 """
                 Generate five in-depth reasoning questions and then answer them based on the image.
@@ -185,32 +209,35 @@ def question_jsonl_gen(args):
             conv.messages[-1][-1] = outputs
             validity, data = validate_data(outputs)
 
-            # if questions is invalid, skip it
+            # If questions are invalid, skip it
             if not validity:
                 continue
 
             for i in range(1, 6):
                 # Add human question
-                human_dict = {
-                    "from": "USER",
-                    "value": data["questions"][f"question{i}"],
-                }
-                multi_choice_data["conversations"].append(human_dict)
+                conversations.append(
+                    {
+                        "from": "USER",
+                        "value": data["questions"][f"question{i}"],
+                    }
+                )
 
                 # Add llava answer
-                llava_dict = {
-                    "from": "ASSISTANT",
-                    "value": data["answers"][f"answer{i}"],
-                }
-                multi_choice_data["conversations"].append(llava_dict)
+                conversations.append(
+                    {
+                        "from": "ASSISTANT",
+                        "value": data["answers"][f"answer{i}"],
+                    }
+                )
 
             qs_file.write(
                 json.dumps(
                     {
-                        "id": line["id"],
-                        "image": line["image"],
+                        "id": data_sample["id"],
+                        "image": data_sample["image"],
+                        "index": line_idx,
                         "description": description,
-                        "conversations": multi_choice_data["conversations"],
+                        "conversations": conversations,
                     }
                 )
                 + "\n"
@@ -229,12 +256,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--dataset-prefix", type=str, default="COCO_train2014_")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
-    parser.add_argument("--num-chunks", type=int, default=1000)
+    parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
-    parser.add_argument("--load-4bit", type=bool, default=True)
+    parser.add_argument("--load-4bit", type=bool, default=False)
     args = parser.parse_args()
 
     question_jsonl_gen(args)
