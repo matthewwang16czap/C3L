@@ -18,20 +18,14 @@ from llava.mm_utils import (
 )
 
 from PIL import Image
-import math
 import json
 import re
-
-
-def split_list(lst, n):
-    """Split a list into n (roughly) equal-sized chunks"""
-    chunk_size = math.ceil(len(lst) / n)  # integer division
-    return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
+import numpy as np
+from pathlib import Path
 
 
 def get_chunk(lst, n, k):
-    chunks = split_list(lst, n)
-    return chunks[k]
+    return np.array_split(lst, n)[k]
 
 
 # need to edit
@@ -48,22 +42,15 @@ def inference(qs, image, image_tensor, tokenizer, model, conv, max_new_token):
             )
         else:
             qs = DEFAULT_IMAGE_TOKEN + "\n" + qs
-        conv.append_message(conv.roles[0], qs)
-        image = None
-    else:
-        # later messages
-        conv.append_message(conv.roles[0], qs)
-
+    conv.append_message(conv.roles[0], qs)
     conv.append_message(conv.roles[1], None)
 
     prompt = conv.get_prompt()
-
     input_ids = (
         tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt")
         .unsqueeze(0)
         .cuda()
     )
-
     stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
 
     with torch.inference_mode():
@@ -79,89 +66,36 @@ def inference(qs, image, image_tensor, tokenizer, model, conv, max_new_token):
             use_cache=True,
         )
 
-    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0]
-    outputs = outputs.strip()
-
+    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
     if outputs.endswith(stop_str):
-        outputs = outputs[: -len(stop_str)]
-    outputs = outputs.strip()
-
-    if "\n\n" in outputs:
-        outputs = outputs.split("\n\n")[0]
+        outputs = outputs[: -len(stop_str)].strip()
 
     return outputs
 
 
 def validate_data(data):
-    # Check if the input is a valid JSON string
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except json.JSONDecodeError:
-            return False, "Invalid JSON string."
+    try:
+        data = json.loads(data) if isinstance(data, str) else data
+        if not isinstance(data, dict):
+            raise ValueError("Input must be a JSON object.")
 
-    # Check if the input is a dictionary
-    if not isinstance(data, dict):
-        return False, "Input must be a JSON object."
-
-    # Validate the structure of the JSON
-    required_keys = ["questions", "answers"]
-    for key in required_keys:
-        if key not in data:
-            return False, f"Missing required key: '{key}'"
-
-    # Validate the 'questions' and 'answers' sections
-    for section in ["questions", "answers"]:
-        if not isinstance(data[section], dict):
-            return False, f"'{section}' must be a dictionary."
-
-        if len(data[section]) != 5:
-            return False, f"'{section}' must contain exactly 5 entities."
-
-        for key, value in data[section].items():
-            # Check that the key starts with 'question' or 'answer' respectively and ends with a number from 1 to 5
-            if section == "questions" and not key.lower().startswith("question"):
-                return (
-                    False,
-                    f"Invalid key '{key}' in 'questions'. Keys must start with 'question'.",
-                )
-
-            if section == "answers" and not key.lower().startswith("answer"):
-                return (
-                    False,
-                    f"Invalid key '{key}' in 'answers'. Keys must start with 'answer'.",
-                )
-
-            try:
-                label_number = int(
-                    key[len(section[:-1]) :]
-                )  # Extract the number from the key
-                if label_number not in range(1, 6):
-                    return (
-                        False,
-                        f"Key '{key}' in '{section}' must end with a number between 1 and 5.",
+        for section in ["questions", "answers"]:
+            if not isinstance(data.get(section, {}), dict) or len(data[section]) != 5:
+                raise ValueError(f"'{section}' must contain exactly 5 key-value pairs.")
+            for key, value in data[section].items():
+                if not re.match(f"{section[:-1]}[1-5]$", key, re.IGNORECASE):
+                    raise ValueError(f"Invalid key '{key}' in '{section}'.")
+                if (
+                    not isinstance(value, str)
+                    or not value.strip()
+                    or any(x in value.lower() for x in ["question", "answer"])
+                ):
+                    raise ValueError(
+                        f"Invalid value in '{section}'. Values must be non-empty and not contain 'question' or 'answer'."
                     )
-            except ValueError:
-                return (
-                    False,
-                    f"Key '{key}' in '{section}' must end with a valid number.",
-                )
-
-            # Check that the value does not contain 'question' or 'answer' (case-insensitive)
-            if "question" in value.lower() or "answer" in value.lower():
-                return (
-                    False,
-                    f"Invalid value '{value}' in '{section}'. Values must not contain 'question' or 'answer'.",
-                )
-
-            # Check that the value is not empty
-            if not isinstance(value, str) or not value.strip():
-                return (
-                    False,
-                    f"The value for '{key}' in '{section}' must be a non-empty string.",
-                )
-
-    return True, data
+        return True, data
+    except (json.JSONDecodeError, ValueError) as e:
+        return False, str(e)
 
 
 def question_jsonl_gen(args):
@@ -178,101 +112,109 @@ def question_jsonl_gen(args):
     datasets = get_chunk(datasets, args.num_chunks, args.chunk_idx)
     question_file = os.path.expanduser(args.question_file)
     os.makedirs(os.path.dirname(question_file), exist_ok=True)
-    qs_file = open(question_file, "w")
-    line_index = 0
-    for line in tqdm(datasets):
-        line = json.loads(line)
-        line_index = line_index + 1
-        image = os.path.join(args.dataset_path, args.dataset_prefix + line["image"])
-        image = Image.open(image)
-        image_tensor = image_processor.preprocess(image, return_tensors="pt")[
-            "pixel_values"
-        ][0]
-
-        # 2 stages' max token size
-        max_new_tokens = [128, 512]
-
-        multi_choice_data = {}
-        multi_choice_data["id"] = line["id"]
-        multi_choice_data["image"] = line["image"]
-        multi_choice_data["conversations"] = []
-
-        conv = conv_templates[args.conv_mode].copy()
-
-        # get first stage inference output
-        description = inference(
-            "Generate descriptions based on the image in one to three complete sentence.",
-            image,
-            image_tensor,
-            tokenizer,
-            model,
-            conv,
-            max_new_tokens[0],
-        )
-
-        # remove imcomplete sentence
-        if description[-1] != ".":
-            description = description.split(description.split(".")[-1])[0]
-
-        conv.messages[-1][-1] = description
-
-        # get second stage inference output
-        outputs = inference(
-            """
-            Generate five in-depth reasoning questions and then answer them based on the image.
-            Your response should be a JSON in this JSON format:
-            {
-                "questions": {
-                    "question1": "your first question",
-                    "question2": "your second question",
-                    ...
-                },
-                "answers": {
-                    "answer1": "your first answer",
-                    "answer2": "your second answer",
-                    ...
-                },
-            }
-            """,
-            None,
-            image_tensor,
-            tokenizer,
-            model,
-            conv,
-            max_new_tokens[1],
-        )
-
-        outputs = re.sub(r",\s*([\]}])", r"\1", outputs)
-
-        conv.messages[-1][-1] = outputs
-        validity, data = validate_data(outputs)
-
-        # if questions is invalid, skip it
-        if not validity:
-            continue
-
-        for i in range(1, 6):
-            # Add human question
-            human_dict = {"from": "USER", "value": data["questions"][f"question{i}"]}
-            multi_choice_data["conversations"].append(human_dict)
-
-            # Add llava answer
-            llava_dict = {"from": "ASSISTANT", "value": data["answers"][f"answer{i}"]}
-            multi_choice_data["conversations"].append(llava_dict)
-
-        qs_file.write(
-            json.dumps(
-                {
-                    "id": line["id"],
-                    "image": line["image"],
-                    "description": description,
-                    "conversations": multi_choice_data["conversations"],
-                }
+    with open(args.question_file, "w") as qs_file:
+        qs_file = open(question_file, "w")
+        line_index = 0
+        for line in tqdm(datasets):
+            line = json.loads(line)
+            line_index = line_index + 1
+            image = os.path.join(
+                Path(args.dataset_path).expanduser(),
+                args.dataset_prefix + line["image"],
             )
-            + "\n"
-        )
-        qs_file.flush()
-    qs_file.close()
+            image = Image.open(image)
+            image_tensor = image_processor.preprocess(image, return_tensors="pt")[
+                "pixel_values"
+            ][0]
+
+            # 2 stages' max token size
+            max_new_tokens = [128, 512]
+
+            multi_choice_data = {}
+            multi_choice_data["id"] = line["id"]
+            multi_choice_data["image"] = line["image"]
+            multi_choice_data["conversations"] = []
+
+            conv = conv_templates[args.conv_mode].copy()
+
+            # get first stage inference output
+            description = inference(
+                "Generate descriptions based on the image in one to three complete sentence.",
+                image,
+                image_tensor,
+                tokenizer,
+                model,
+                conv,
+                max_new_tokens[0],
+            )
+
+            # remove imcomplete sentence
+            if description[-1] != ".":
+                description = description.split(description.split(".")[-1])[0]
+
+            conv.messages[-1][-1] = description
+
+            # get second stage inference output
+            outputs = inference(
+                """
+                Generate five in-depth reasoning questions and then answer them based on the image.
+                Your response should be a JSON in this JSON format:
+                {
+                    "questions": {
+                        "question1": "your first question",
+                        "question2": "your second question",
+                        ...
+                    },
+                    "answers": {
+                        "answer1": "your first answer",
+                        "answer2": "your second answer",
+                        ...
+                    },
+                }
+                """,
+                None,
+                image_tensor,
+                tokenizer,
+                model,
+                conv,
+                max_new_tokens[1],
+            )
+
+            outputs = re.sub(r",\s*([\]}])", r"\1", outputs)
+
+            conv.messages[-1][-1] = outputs
+            validity, data = validate_data(outputs)
+
+            # if questions is invalid, skip it
+            if not validity:
+                continue
+
+            for i in range(1, 6):
+                # Add human question
+                human_dict = {
+                    "from": "USER",
+                    "value": data["questions"][f"question{i}"],
+                }
+                multi_choice_data["conversations"].append(human_dict)
+
+                # Add llava answer
+                llava_dict = {
+                    "from": "ASSISTANT",
+                    "value": data["answers"][f"answer{i}"],
+                }
+                multi_choice_data["conversations"].append(llava_dict)
+
+            qs_file.write(
+                json.dumps(
+                    {
+                        "id": line["id"],
+                        "image": line["image"],
+                        "description": description,
+                        "conversations": multi_choice_data["conversations"],
+                    }
+                )
+                + "\n"
+            )
 
 
 if __name__ == "__main__":
@@ -282,10 +224,12 @@ if __name__ == "__main__":
     parser.add_argument("--image-folder", type=str, default="")
     parser.add_argument("--question-file", type=str, default="./C3L/question.jsonl")
     parser.add_argument("--dataset-file", type=str, default="./C3L/dataset.jsonl")
-    parser.add_argument("--dataset-path", type=str, default="./dataset/data")
+    parser.add_argument(
+        "--dataset-path", type=str, default="~/fiftyone/coco-2014/train/data"
+    )
     parser.add_argument("--dataset-prefix", type=str, default="COCO_train2014_")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
-    parser.add_argument("--num-chunks", type=int, default=1)
+    parser.add_argument("--num-chunks", type=int, default=1000)
     parser.add_argument("--chunk-idx", type=int, default=0)
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--top_p", type=float, default=None)

@@ -2,6 +2,7 @@ import os
 import re
 import json
 from concurrent.futures import ProcessPoolExecutor
+from pathlib import Path
 
 
 def process_file(filename, prefix):
@@ -12,7 +13,9 @@ def process_file(filename, prefix):
 
 
 def dataset_jsonl_gen(
-    dir="./dataset/data", prefix="COCO_train2014_", out_dir="./C3L/dataset.jsonl"
+    dir=Path("~/fiftyone/coco-2014/train/data").expanduser(),
+    prefix="COCO_train2014_",
+    out_dir="./C3L/dataset.jsonl",
 ):
     # Get all filenames in the directory
     filenames = os.listdir(dir)

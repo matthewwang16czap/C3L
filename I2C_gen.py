@@ -22,19 +22,14 @@ from llava.mm_utils import (
 from PIL import Image
 import math
 import time
+import numpy as np
+from pathlib import Path
 
 start_time = time.time()
 
 
-def split_list(lst, n):
-    """Split a list into n (roughly) equal-sized chunks"""
-    chunk_size = math.ceil(len(lst) / n)  # integer division
-    return [lst[i : i + chunk_size] for i in range(0, len(lst), chunk_size)]
-
-
 def get_chunk(lst, n, k):
-    chunks = split_list(lst, n)
-    return chunks[k]
+    return np.array_split(lst, n)[k]
 
 
 def compute_answer_prob(scores, answer_ids, tokenizer):
@@ -170,7 +165,8 @@ def I2C_gen(args):
             )
 
         image = os.path.join(
-            args.dataset_path, args.dataset_prefix + data_sample["image"]
+            Path(args.dataset_path).expanduser(),
+            args.dataset_prefix + data_sample["image"],
         )
         image = Image.open(image)
         image_tensor = image_processor.preprocess(image, return_tensors="pt")[
@@ -193,7 +189,9 @@ if __name__ == "__main__":
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument("--image-folder", type=str, default="")
     parser.add_argument("--question-file", type=str, default="./C3L/question.jsonl")
-    parser.add_argument("--dataset-path", type=str, default="./dataset/data")
+    parser.add_argument(
+        "--dataset-path", type=str, default="~/fiftyone/coco-2014/train/data"
+    )
     parser.add_argument("--dataset-prefix", type=str, default="COCO_train2014_")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
     parser.add_argument("--num-chunks", type=int, default=1)
@@ -201,7 +199,7 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
-    parser.add_argument("--load-4bit", type=bool, default=True)
+    parser.add_argument("--load-4bit", type=bool, default=False)
     parser.add_argument("--save-path", type=str, default="./C3L/I2C.pt")
     args = parser.parse_args()
 
