@@ -1,11 +1,13 @@
 # C3L
 
-First go to https://github.com/haotian-liu/LLaVA and install LLaVA.
-
+First go to https://github.com/haotian-liu/LLaVA.
 Then clone this repository under LLaVA repository.
 
-Additional commands:
+Commands for setup conda env:
 
 conda install -c nvidia cuda-compiler
+conda install conda-forge::libstdcxx-ng
+
+Install LLaVA.
 
 Run scripts
