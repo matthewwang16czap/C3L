@@ -29,7 +29,7 @@ def get_chunk(lst, n, k):
 
 
 # need to edit
-def inference(qs, image, image_tensor, tokenizer, model, conv, max_new_token):
+def inference(qs, image, image_tensor, tokenizer, model, conv, max_new_token, device):
     if image is not None:
         # first message
         if model.config.mm_use_im_start_end:
@@ -49,14 +49,14 @@ def inference(qs, image, image_tensor, tokenizer, model, conv, max_new_token):
     input_ids = (
         tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt")
         .unsqueeze(0)
-        .cuda()
+        .to(device)
     )
     stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
 
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids,
-            images=image_tensor.unsqueeze(0).half().cuda(),
+            images=image_tensor.unsqueeze(0).half().to(device),
             do_sample=True if args.temperature > 0 else False,
             temperature=args.temperature,
             top_p=args.top_p,
@@ -170,6 +170,7 @@ def question_jsonl_gen(args):
                 model,
                 conv,
                 max_new_tokens[0],
+                args.device,
             )
 
             # Remove incomplete sentence
@@ -202,6 +203,7 @@ def question_jsonl_gen(args):
                 model,
                 conv,
                 max_new_tokens[1],
+                args.device,
             )
 
             outputs = re.sub(r",\s*([\]}])", r"\1", outputs)
@@ -262,6 +264,7 @@ if __name__ == "__main__":
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--load-4bit", type=bool, default=False)
+    parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
     question_jsonl_gen(args)

@@ -12,13 +12,11 @@ from llava.mm_utils import (
     get_model_name_from_path,
     KeywordsStoppingCriteria,
 )
-import bitsandbytes as bnb  # For 4-bit optimizer
+import bitsandbytes as bnb
 
 
 class ContrastiveDataset(Dataset):
-    def __init__(
-        self, question_file, i2c_path, model, tokenizer, conv_mode, device="cuda"
-    ):
+    def __init__(self, question_file, i2c_path, model, tokenizer, conv_mode, device):
         self.model = model
         self.tokenizer = tokenizer
         self.data = []
@@ -75,7 +73,7 @@ def contrastive_loss(anchor, positive, negatives, temperature=0.2):
     return loss.mean()
 
 
-def contrastive_learning_train(args, device="cuda"):
+def contrastive_learning_train(args):
     disable_torch_init()
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
@@ -96,11 +94,11 @@ def contrastive_learning_train(args, device="cuda"):
 
     # Load dataset
     dataset = ContrastiveDataset(
-        args.question_file, args.i2c_path, model, tokenizer, args.conv_mode
+        args.question_file, args.i2c_path, model, tokenizer, args.conv_mode, args.device
     )
     dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
-    optimizer = bnb.optim.Adam8bit(model.parameters(), lr=5e-6, betas=(0.9, 0.95))
+    optimizer = bnb.optim.Adam8bit(model.parameters(), lr=1e-5, betas=(0.9, 0.95))
 
     for epoch in range(args.epochs):
         for batch_idx, (descriptions, positive, negatives) in enumerate(dataloader):
@@ -108,9 +106,9 @@ def contrastive_learning_train(args, device="cuda"):
 
             input_ids = tokenizer(
                 descriptions, return_tensors="pt", padding=True, truncation=True
-            ).input_ids.to(device)
-            positive = positive.to(device)
-            negatives = negatives.to(device)
+            ).input_ids.to(args.device)
+            positive = positive.to(args.device)
+            negatives = negatives.to(args.device)
 
             embedding = model.model.embed_tokens(input_ids)
             anchor = F.normalize(embedding.mean(dim=1), p=2, dim=-1)
@@ -140,6 +138,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--load-4bit", type=bool, default=False)
+    parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
     contrastive_learning_train(args)

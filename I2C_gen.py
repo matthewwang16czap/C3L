@@ -32,7 +32,7 @@ def get_chunk(lst, n, k):
     return np.array_split(lst, n)[k]
 
 
-def compute_answer_prob(scores, answer_ids, tokenizer):
+def compute_answer_prob(scores, answer_ids):
     # Get sequence lengths
     scores_seq_len = scores.shape[1]
     answer_seq_len = answer_ids.shape[1]
@@ -56,7 +56,7 @@ def compute_answer_prob(scores, answer_ids, tokenizer):
     return dist
 
 
-def compute_i2c(args, model, tokenizer, image_tensor, data_sample, device="cuda"):
+def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
     conversations = data_sample["conversations"]
 
     # initializing
@@ -91,12 +91,12 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample, device="cuda"
                 return_tensors="pt",
             )
             .unsqueeze(0)
-            .to(device)
+            .to(args.device)
         )
         input_ids_without_image = tokenizer(
             conv_without_image.get_prompt(), return_tensors="pt"
-        ).input_ids.to(device)
-        answer_ids = tokenizer(answer, return_tensors="pt").input_ids.to(device)
+        ).input_ids.to(args.device)
+        answer_ids = tokenizer(answer, return_tensors="pt").input_ids.to(args.device)
 
         # S(A|V): Visual Answer Scores
         with torch.inference_mode():
@@ -113,7 +113,7 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample, device="cuda"
                 use_cache=True,
             )
             scores = torch.concat(outputs.scores, dim=0).unsqueeze(dim=0)
-        s_a_v = compute_answer_prob(scores, answer_ids, tokenizer)
+        s_a_v = compute_answer_prob(scores, answer_ids)
 
         # S(A): Direct Answer Scores (without image)
         with torch.inference_mode():
@@ -201,6 +201,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--load-4bit", type=bool, default=False)
     parser.add_argument("--save-path", type=str, default="./C3L/I2C.pt")
+    parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
     I2C_gen(args)
