@@ -125,6 +125,9 @@ def question_jsonl_gen(args):
     tokenizer, model, image_processor, context_len = load_pretrained_model(
         model_path, args.model_base, model_name, load_4bit=args.load_4bit
     )
+    # Multi-GPU support
+    if torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model)
 
     # Dataset
     with open(os.path.expanduser(args.dataset_file), "r") as f:
@@ -149,10 +152,14 @@ def question_jsonl_gen(args):
                 Path(args.dataset_path).expanduser(),
                 args.dataset_prefix + data_sample["image"],
             )
-            image = Image.open(image)
-            image_tensor = image_processor.preprocess(image, return_tensors="pt")[
-                "pixel_values"
-            ][0]
+            try:
+                image = Image.open(image)
+                image_tensor = image_processor.preprocess(image, return_tensors="pt")[
+                    "pixel_values"
+                ][0].to(args.device)
+            except Exception as e:
+                print(f"Error processing image: {e}")
+                continue
 
             # 2 stages' max token size
             max_new_tokens = [128, 512]
