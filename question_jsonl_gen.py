@@ -30,6 +30,8 @@ def get_chunk(lst, n, k):
 
 # need to edit
 def inference(qs, image, image_tensor, tokenizer, model, conv, max_new_token, device):
+    # Multi-GPU Support
+    model = model.module if hasattr(model, "module") else model
     if image is not None:
         # first message
         if model.config.mm_use_im_start_end:
