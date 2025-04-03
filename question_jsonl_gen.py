@@ -12,13 +12,8 @@ from llava.constants import (
 from llava.conversation import conv_templates, SeparatorStyle
 from llava.model.builder import load_pretrained_model
 from llava.utils import disable_torch_init
-from llava.mm_utils import (
-    tokenizer_image_token,
-    get_model_name_from_path,
-)
-
+from llava.mm_utils import tokenizer_image_token, get_model_name_from_path
 from PIL import Image
-import json
 import re
 import numpy as np
 from pathlib import Path
@@ -28,50 +23,60 @@ def get_chunk(lst, n, k):
     return np.array_split(lst, n)[k]
 
 
-# need to edit
-def inference(qs, image, image_tensor, tokenizer, model, conv, max_new_token, device):
-    # Multi-GPU Support
-    model = model.module if hasattr(model, "module") else model
-    if image is not None:
-        # first message
-        if model.config.mm_use_im_start_end:
-            qs = (
-                DEFAULT_IM_START_TOKEN
-                + DEFAULT_IMAGE_TOKEN
-                + DEFAULT_IM_END_TOKEN
-                + "\n"
-                + qs
-            )
-        else:
-            qs = DEFAULT_IMAGE_TOKEN + "\n" + qs
-    conv.append_message(conv.roles[0], qs)
-    conv.append_message(conv.roles[1], None)
+def inference(
+    questions, images, image_tensors, tokenizer, model, convs, max_new_tokens, device
+):
+    batch_size = len(questions)
+    input_ids_list = []
+    for i in range(batch_size):
+        qs = questions[i]
+        if images[i] is not None:
+            if model.config.mm_use_im_start_end:
+                qs = (
+                    DEFAULT_IM_START_TOKEN
+                    + DEFAULT_IMAGE_TOKEN
+                    + DEFAULT_IM_END_TOKEN
+                    + "\n"
+                    + qs
+                )
+            else:
+                qs = DEFAULT_IMAGE_TOKEN + "\n" + qs
 
-    prompt = conv.get_prompt()
-    input_ids = (
-        tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt")
-        .unsqueeze(0)
-        .to(device)
+        convs[i].append_message(convs[i].roles[0], qs)
+        convs[i].append_message(convs[i].roles[1], None)
+        prompt = convs[i].get_prompt()
+        input_ids = tokenizer_image_token(
+            prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+        ).to(device)
+        input_ids_list.append(input_ids)
+
+    input_ids = torch.nn.utils.rnn.pad_sequence(input_ids_list, batch_first=True)
+
+    stop_str = (
+        convs[0].sep if convs[0].sep_style != SeparatorStyle.TWO else convs[0].sep2
     )
-    stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
 
     with torch.inference_mode():
         output_ids = model.generate(
             input_ids,
-            images=image_tensor.unsqueeze(0).half().to(device),
+            images=torch.stack(image_tensors).half().to(device),
             do_sample=True if args.temperature > 0 else False,
             temperature=args.temperature,
             top_p=args.top_p,
             num_beams=args.num_beams,
-            # no_repeat_ngram_size=3,
-            max_new_tokens=max_new_token,
+            max_new_tokens=max_new_tokens,
             use_cache=True,
         )
 
-    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-    if outputs.endswith(stop_str):
-        outputs = outputs[: -len(stop_str)].strip()
-
+    outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+    outputs = [
+        (
+            output.strip()[: -len(stop_str)].strip()
+            if output.endswith(stop_str)
+            else output.strip()
+        )
+        for output in outputs
+    ]
     return outputs
 
 
@@ -125,11 +130,13 @@ def question_jsonl_gen(args):
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
     tokenizer, model, image_processor, context_len = load_pretrained_model(
-        model_path, args.model_base, model_name, load_4bit=args.load_4bit
+        model_path,
+        args.model_base,
+        model_name,
+        load_4bit=args.load_4bit,
+        use_flash_attn=False,
+        offload_folder="offload",
     )
-    # Multi-GPU support
-    if torch.cuda.device_count() > 1:
-        model = torch.nn.DataParallel(model)
 
     # Dataset
     with open(os.path.expanduser(args.dataset_file), "r") as f:
@@ -142,117 +149,105 @@ def question_jsonl_gen(args):
     # Get last processed index
     start_index = get_last_index(question_file)
 
-    # Open the file in append mode
     with open(question_file, "a") as qs_file:
-        for line_idx, line in enumerate(
-            tqdm(datasets[start_index:], total=len(datasets), initial=start_index),
-            start=start_index,
-        ):
-            data_sample = json.loads(line)
+        with tqdm(total=len(datasets), initial=start_index) as pbar:
+            for i in range(start_index, len(datasets), args.batch_size):
+                batch = [json.loads(line) for line in datasets[i : i + args.batch_size]]
+                images = []
+                image_tensors = []
+                convs = [conv_templates[args.conv_mode].copy() for _ in batch]
 
-            image = os.path.join(
-                Path(args.dataset_path).expanduser(),
-                args.dataset_prefix + data_sample["image"],
-            )
-            try:
-                image = Image.open(image)
-                image_tensor = image_processor.preprocess(image, return_tensors="pt")[
-                    "pixel_values"
-                ][0].to(args.device)
-            except Exception as e:
-                print(f"Error processing image: {e}")
-                continue
+                for data_sample in batch:
+                    image_path = os.path.join(
+                        Path(args.dataset_path).expanduser(),
+                        args.dataset_prefix + data_sample["image"],
+                    )
+                    try:
+                        image = Image.open(image_path)
+                        image_tensor = image_processor.preprocess(
+                            image, return_tensors="pt"
+                        )["pixel_values"][0].to(args.device)
+                        images.append(image)
+                        image_tensors.append(image_tensor)
+                    except Exception as e:
+                        print(f"Error processing image: {e}")
+                        continue
 
-            # 2 stages' max token size
-            max_new_tokens = [128, 512]
+                # 2 stages' max token size
+                max_new_tokens = [128, 512]
 
-            conversations = []
-
-            conv = conv_templates[args.conv_mode].copy()
-
-            # Get first stage inference output
-            description = inference(
-                "Generate descriptions based on the image in one to three complete sentences.",
-                image,
-                image_tensor,
-                tokenizer,
-                model,
-                conv,
-                max_new_tokens[0],
-                args.device,
-            )
-
-            # Remove incomplete sentence
-            if description[-1] != ".":
-                description = description.split(description.split(".")[-1])[0]
-
-            conv.messages[-1][-1] = description
-
-            # Get second stage inference output
-            outputs = inference(
-                """
-                Generate five in-depth reasoning questions and then answer them based on the image.
-                Your response should be a JSON in this JSON format:
-                {
-                    "questions": {
-                        "question1": "your first question",
-                        "question2": "your second question",
-                        ...
-                    },
-                    "answers": {
-                        "answer1": "your first answer",
-                        "answer2": "your second answer",
-                        ...
-                    },
-                }
-                """,
-                None,
-                image_tensor,
-                tokenizer,
-                model,
-                conv,
-                max_new_tokens[1],
-                args.device,
-            )
-
-            outputs = re.sub(r",\s*([\]}])", r"\1", outputs)
-
-            conv.messages[-1][-1] = outputs
-            validity, data = validate_data(outputs)
-
-            # If questions are invalid, skip it
-            if not validity:
-                continue
-
-            for i in range(1, 6):
-                # Add human question
-                conversations.append(
-                    {
-                        "from": "USER",
-                        "value": data["questions"][f"question{i}"],
-                    }
+                # Get first stage inference output
+                descriptions = inference(
+                    [
+                        "Generate descriptions based on the image in one to three complete sentences."
+                    ]
+                    * len(images),
+                    images,
+                    image_tensors,
+                    tokenizer,
+                    model,
+                    convs,
+                    max_new_tokens[0],
+                    args.device,
                 )
 
-                # Add llava answer
-                conversations.append(
-                    {
-                        "from": "ASSISTANT",
-                        "value": data["answers"][f"answer{i}"],
-                    }
+                for j, desc in enumerate(descriptions):
+                    if desc[-1] != ".":
+                        descriptions[j] = desc.rsplit(".", 1)[0] + "."
+                    convs[j].messages[-1][-1] = descriptions[j]
+
+                # Get second stage inference output
+                outputs = inference(
+                    [
+                        """
+                    Generate five in-depth reasoning questions and then answer them based on the image.
+                    Your response should be a JSON in this format:
+                    {"questions": {"question1": "your first question", "question2": "your second question", ...},
+                    "answers": {"answer1": "your first answer", "answer2": "your second answer", ...}}
+                    """
+                    ]
+                    * len(images),
+                    [None] * len(images),
+                    image_tensors,
+                    tokenizer,
+                    model,
+                    convs,
+                    max_new_tokens[1],
+                    args.device,
                 )
 
-            qs_file.write(
-                json.dumps(
-                    {
-                        "id": data_sample["id"],
-                        "image": data_sample["image"],
-                        "index": line_idx,
-                        "description": description,
-                        "conversations": conversations,
-                    }
-                )
-                + "\n"
-            )
+                for j, output in enumerate(outputs):
+
+                    output = re.sub(r",\s*([\]}])", r"\1", output)
+                    validity, data = validate_data(output)
+                    # If questions are invalid, skip it
+                    if not validity:
+                        continue
+
+                    conversations = []
+                    for k in range(1, 6):
+                        conversations.append(
+                            {"from": "USER", "value": data["questions"][f"question{k}"]}
+                        )
+                        conversations.append(
+                            {
+                                "from": "ASSISTANT",
+                                "value": data["answers"][f"answer{k}"],
+                            }
+                        )
+                    qs_file.write(
+                        json.dumps(
+                            {
+                                "id": batch[j]["id"],
+                                "image": batch[j]["image"],
+                                "index": i + j,
+                                "description": descriptions[j],
+                                "conversations": conversations,
+                            }
+                        )
+                        + "\n"
+                    )
+                pbar.update(args.batch_size)  # Update tqdm based on batch size
 
 
 if __name__ == "__main__":
@@ -274,6 +269,6 @@ if __name__ == "__main__":
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--load-4bit", type=bool, default=False)
     parser.add_argument("--device", type=str, default="cuda")
+    parser.add_argument("--batch-size", type=int, default=1)
     args = parser.parse_args()
-
     question_jsonl_gen(args)
