@@ -20,12 +20,8 @@ from llava.mm_utils import (
     KeywordsStoppingCriteria,
 )
 from PIL import Image
-import math
-import time
 import numpy as np
 from pathlib import Path
-
-start_time = time.time()
 
 
 def get_chunk(lst, n, k):
@@ -179,8 +175,6 @@ def I2C_gen(args):
         line_index = line_index + 1
 
     torch.save(i2c_tensor, args.save_path)
-
-    print("Time Used:", (time.time() - start_time) / 60, "(min)")
 
 
 if __name__ == "__main__":
