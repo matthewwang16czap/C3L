@@ -147,6 +147,10 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
         scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2)
     s_a = compute_answer_prob(scores, answer_ids)
 
+    # Truncate both to the same length
+    min_len = min(s_a_v.shape[1], s_a.shape[1])
+    s_a_v = s_a_v[:, :min_len]
+    s_a = s_a[:, :min_len]
     # Compute KL-divergence
     kl_div = F.kl_div(
         F.log_softmax(s_a_v, dim=-1), s_a, reduction="none", log_target=False
