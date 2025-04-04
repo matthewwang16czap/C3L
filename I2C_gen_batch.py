@@ -22,6 +22,7 @@ from llava.mm_utils import (
 from PIL import Image
 import numpy as np
 from pathlib import Path
+import csv
 
 
 def get_chunk(lst, n, k):
@@ -113,13 +114,13 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
     )
 
     # S(A|V): Visual Answer Scores
-    with torch.inference_mode():
+    with torch.no_grad():
         outputs = model.generate(
             input_ids_with_images,
             images=images,
             return_dict_in_generate=True,
             output_scores=True,
-            max_new_tokens=256,
+            max_new_tokens=128,
             do_sample=True if args.temperature > 0 else False,
             temperature=args.temperature,
             top_p=args.top_p,
@@ -130,13 +131,13 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
     s_a_v = compute_answer_prob(scores, answer_ids)
 
     # S(A): Direct Answer Scores (without image)
-    with torch.inference_mode():
+    with torch.no_grad():
         outputs = model.generate(
             input_ids_with_images,
             images=None,
             return_dict_in_generate=True,
             output_scores=True,
-            max_new_tokens=256,
+            max_new_tokens=128,
             do_sample=True if args.temperature > 0 else False,
             temperature=args.temperature,
             top_p=args.top_p,
@@ -155,7 +156,7 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
 
 
 def I2C_gen(args):
-    # Model
+    # Model setup
     disable_torch_init()
     model_path = os.path.expanduser(args.model_path)
     model_name = get_model_name_from_path(model_path)
@@ -163,18 +164,25 @@ def I2C_gen(args):
         model_path, args.model_base, model_name, load_4bit=args.load_4bit
     )
 
-    # Dataset
+    # Dataset setup
     with open(os.path.expanduser(args.question_file), "r") as f:
         datasets = f.readlines()
     datasets = get_chunk(datasets, args.num_chunks, args.chunk_idx)
 
-    i2c_tensor = None
-    for idx, line in enumerate(tqdm(datasets)):
-        data_sample = json.loads(line)
-        if i2c_tensor is None:
-            i2c_tensor = torch.zeros(
-                len(datasets), len(data_sample["conversations"]) // 2
-            )
+    # CSV file path
+    csv_file_path = os.path.expanduser(args.save_path)
+
+    # Determine the last processed index by counting existing lines
+    last_index = 0
+    if os.path.exists(csv_file_path):
+        with open(csv_file_path, mode="r") as csvfile:
+            last_index = sum(1 for _ in csvfile)  # Count number of existing rows
+
+    # Start processing directly from the last index
+    for idx in tqdm(
+        range(last_index, len(datasets)), initial=last_index, total=len(datasets)
+    ):
+        data_sample = json.loads(datasets[idx])
 
         image = os.path.join(
             Path(args.dataset_path).expanduser(),
@@ -185,10 +193,13 @@ def I2C_gen(args):
             "pixel_values"
         ][0]
 
+        # Compute I2C scores
         i2c_scores = compute_i2c(args, model, tokenizer, image_tensor, data_sample)
-        i2c_tensor[idx] = i2c_scores
 
-    torch.save(i2c_tensor, args.save_path)
+        # Append I2C scores to CSV
+        with open(csv_file_path, mode="a", newline="") as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(i2c_scores.tolist())  # Save only I2C scores
 
 
 if __name__ == "__main__":
@@ -208,7 +219,7 @@ if __name__ == "__main__":
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--load-4bit", type=bool, default=False)
-    parser.add_argument("--save-path", type=str, default="./C3L/I2C.pt")
+    parser.add_argument("--save-path", type=str, default="./C3L/I2C.csv")
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 
