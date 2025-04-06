@@ -176,11 +176,18 @@ def I2C_gen(args):
     # CSV file path
     csv_file_path = os.path.expanduser(args.save_path)
 
-    # Determine the last processed index by counting existing lines
+    # Determine the last valid processed index
     last_index = 0
     if os.path.exists(csv_file_path):
         with open(csv_file_path, mode="r") as csvfile:
-            last_index = sum(1 for _ in csvfile)  # Count number of existing rows
+            lines = csvfile.readlines()
+
+        # Check if the last line is a complete row with 5 values
+        if lines and lines[-1].strip() == "":
+            # Incomplete row, discard it
+            lines = lines[:-1]
+
+        last_index = len(lines)
 
     # Start processing directly from the last index
     for idx in tqdm(
