@@ -99,9 +99,7 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
     input_ids_with_images = torch.nn.utils.rnn.pad_sequence(
         input_ids_with_images, batch_first=True, padding_value=IGNORE_INDEX
     ).to(args.device)
-    input_ids_without_images = torch.nn.utils.rnn.pad_sequence(
-        input_ids_without_images, batch_first=True, padding_value=IGNORE_INDEX
-    ).to(args.device)
+
     answer_ids = torch.nn.utils.rnn.pad_sequence(
         answer_ids, batch_first=True, padding_value=IGNORE_INDEX
     ).to(args.device)
@@ -120,7 +118,7 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
             images=images,
             return_dict_in_generate=True,
             output_scores=True,
-            max_new_tokens=64,
+            max_new_tokens=128,
             do_sample=True if args.temperature > 0 else False,
             temperature=args.temperature,
             top_p=args.top_p,
@@ -130,14 +128,18 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
         scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2)
     s_a_v = compute_answer_prob(scores, answer_ids)
 
+    input_ids_without_images = torch.nn.utils.rnn.pad_sequence(
+        input_ids_without_images, batch_first=True, padding_value=IGNORE_INDEX
+    ).to(args.device)
+
     # S(A): Direct Answer Scores (without image)
     with torch.no_grad():
         outputs = model.generate(
-            input_ids_with_images,
+            input_ids_without_images,
             images=None,
             return_dict_in_generate=True,
             output_scores=True,
-            max_new_tokens=64,
+            max_new_tokens=128,
             do_sample=True if args.temperature > 0 else False,
             temperature=args.temperature,
             top_p=args.top_p,
@@ -156,7 +158,9 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
         F.log_softmax(s_a_v, dim=-1), s_a, reduction="none", log_target=False
     ).sum(dim=-1)
 
-    return kl_div
+    result = kl_div.cpu()
+
+    return result
 
 
 def I2C_gen(args):
@@ -181,13 +185,8 @@ def I2C_gen(args):
     if os.path.exists(csv_file_path):
         with open(csv_file_path, mode="r") as csvfile:
             lines = csvfile.readlines()
-
-        # Check if the last line is a complete row with 5 values
-        if lines and lines[-1].strip() == "":
-            # Incomplete row, discard it
-            lines = lines[:-1]
-
-        last_index = len(lines)
+        # assume last line is a new line with no data
+        last_index = len(lines) - 1
 
     # Start processing directly from the last index
     for idx in tqdm(
@@ -206,6 +205,8 @@ def I2C_gen(args):
 
         # Compute I2C scores
         i2c_scores = compute_i2c(args, model, tokenizer, image_tensor, data_sample)
+
+        torch.cuda.empty_cache()
 
         # Append I2C scores to CSV
         with open(csv_file_path, mode="a", newline="") as csvfile:
