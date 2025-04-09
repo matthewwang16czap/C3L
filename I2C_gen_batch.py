@@ -126,7 +126,10 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
             use_cache=True,
         )
         scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2)
-    s_a_v = compute_answer_prob(scores, answer_ids)
+
+    s_a_v = compute_answer_prob(scores, answer_ids).cpu()
+    del input_ids_with_images, images, outputs, scores
+    torch.cuda.empty_cache()
 
     input_ids_without_images = torch.nn.utils.rnn.pad_sequence(
         input_ids_without_images, batch_first=True, padding_value=IGNORE_INDEX
@@ -147,7 +150,10 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
             use_cache=True,
         )
         scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2)
-    s_a = compute_answer_prob(scores, answer_ids)
+
+    s_a = compute_answer_prob(scores, answer_ids).cpu()
+    del input_ids_without_images, outputs, scores
+    torch.cuda.empty_cache()
 
     # Truncate both to the same length
     min_len = min(s_a_v.shape[1], s_a.shape[1])
@@ -206,6 +212,7 @@ def I2C_gen(args):
         # Compute I2C scores
         i2c_scores = compute_i2c(args, model, tokenizer, image_tensor, data_sample)
 
+        del image_tensor
         torch.cuda.empty_cache()
 
         # Append I2C scores to CSV
