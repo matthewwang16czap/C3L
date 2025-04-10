@@ -23,6 +23,7 @@ from PIL import Image
 import numpy as np
 from pathlib import Path
 import csv
+import gc
 
 
 def get_chunk(lst, n, k):
@@ -52,7 +53,10 @@ def compute_answer_prob(scores, answer_ids):
     )  # (batch, seq_len, 1)
 
     # Remove the last dimension
-    dist = F.softmax(gathered_scores.squeeze(-1), dim=-1)  # (batch, seq_len)
+    dist = F.softmax(gathered_scores.squeeze(-1), dim=-1).cpu()  # (batch, seq_len)
+
+    del masked_scores, gathered_scores
+    torch.cuda.empty_cache()
 
     return dist
 
@@ -112,7 +116,7 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
     )
 
     # S(A|V): Visual Answer Scores
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model.generate(
             input_ids_with_images,
             images=images,
@@ -127,7 +131,7 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
         )
         scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2)
 
-    s_a_v = compute_answer_prob(scores, answer_ids).cpu()
+    s_a_v = compute_answer_prob(scores, answer_ids)
     del input_ids_with_images, images, outputs, scores
     torch.cuda.empty_cache()
 
@@ -136,7 +140,7 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
     ).to(args.device)
 
     # S(A): Direct Answer Scores (without image)
-    with torch.no_grad():
+    with torch.inference_mode():
         outputs = model.generate(
             input_ids_without_images,
             images=None,
@@ -151,8 +155,8 @@ def compute_i2c(args, model, tokenizer, image_tensor, data_sample):
         )
         scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2)
 
-    s_a = compute_answer_prob(scores, answer_ids).cpu()
-    del input_ids_without_images, outputs, scores
+    s_a = compute_answer_prob(scores, answer_ids)
+    del input_ids_without_images, outputs, scores, answer_ids
     torch.cuda.empty_cache()
 
     # Truncate both to the same length
@@ -214,6 +218,7 @@ def I2C_gen(args):
 
         del image_tensor
         torch.cuda.empty_cache()
+        gc.collect()
 
         # Append I2C scores to CSV
         with open(csv_file_path, mode="a", newline="") as csvfile:
