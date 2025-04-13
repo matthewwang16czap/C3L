@@ -4,7 +4,7 @@ import os
 import json
 
 
-def I2C_question_filter(args, ratio=0.2):
+def I2C_question_filter(args, ratio=0.1):
     # get dataset
     datasets = []
     with open(os.path.expanduser(args.question_file), "r") as f:
