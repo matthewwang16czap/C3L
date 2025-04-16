@@ -1,7 +1,7 @@
 #!/bin/bash
 
 /home/matthew/miniconda3/envs/rocm/bin/deepspeed ./C3L/train_sdpa.py \
-    --lora_enable True --lora_r 128 --lora_alpha 256 --mm_projector_lr 2e-5 \
+    --lora_enable True --lora_r 64 --lora_alpha 128 --mm_projector_lr 2e-5 \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path /home/matthew/models/llava-v1.5-7b \
     --version v1 \
@@ -14,12 +14,12 @@
     --mm_use_im_patch_token False \
     --image_aspect_ratio pad \
     --group_by_modality_length True \
-    --bf16 True \
+    --fp16 True \
+    --bf16 False \
     --output_dir ./checkpoints/llava-v1.5-7b-finetuned \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 16 \
-    --per_device_eval_batch_size 4 \
-    --gradient_accumulation_steps 1 \
+    --per_device_train_batch_size 1 \
+    --gradient_accumulation_steps 4 \
     --save_strategy "steps" \
     --save_steps 50000 \
     --save_total_limit 1 \
@@ -29,8 +29,8 @@
     --lr_scheduler_type "cosine" \
     --logging_steps 1 \
     --tf32 False \
-    --model_max_length 2048 \
+    --model_max_length 512 \
     --gradient_checkpointing True \
-    --dataloader_num_workers 4 \
+    --dataloader_num_workers 0 \
     --lazy_preprocess True \
     --report_to wandb
