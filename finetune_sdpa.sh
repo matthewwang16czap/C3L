@@ -16,7 +16,7 @@
     --group_by_modality_length True \
     --fp16 True \
     --bf16 False \
-    --output_dir ./checkpoints/llava-v1.5-7b-finetuned \
+    --output_dir ./checkpoints/llava-v1.5-7b-finetuned-lora \
     --num_train_epochs 1 \
     --per_device_train_batch_size 1 \
     --gradient_accumulation_steps 4 \

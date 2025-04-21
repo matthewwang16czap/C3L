@@ -3,7 +3,8 @@ import fiftyone.zoo as foz
 import fiftyone.types as fot
 
 # Download the COCO 2014 dataset (subset)
-dataset = foz.load_zoo_dataset("coco-2014", split="train", max_samples=20000)
+dataset = foz.load_zoo_dataset("coco-2014", split="validation")
+# dataset = foz.load_zoo_dataset("coco-2014", split="train", max_samples=20000)
 
 # export_path = "./dataset"
 
