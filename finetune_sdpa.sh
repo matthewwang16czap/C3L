@@ -14,11 +14,13 @@
     --mm_use_im_patch_token False \
     --image_aspect_ratio pad \
     --group_by_modality_length True \
-    --fp16 True \
-    --bf16 False \
+    --bf16 True \
+    --tf32 False \
+    --fp16 False \
     --output_dir ./checkpoints/llava-v1.5-7b-finetuned-lora \
     --num_train_epochs 1 \
-    --per_device_train_batch_size 1 \
+    --per_device_train_batch_size 4 \
+    --per_device_eval_batch_size 4 \
     --gradient_accumulation_steps 4 \
     --save_strategy "steps" \
     --save_steps 50000 \
@@ -28,9 +30,8 @@
     --warmup_ratio 0.03 \
     --lr_scheduler_type "cosine" \
     --logging_steps 1 \
-    --tf32 False \
     --model_max_length 512 \
     --gradient_checkpointing True \
-    --dataloader_num_workers 0 \
+    --dataloader_num_workers 4 \
     --lazy_preprocess True \
-    --report_to wandb
+    --report_to none
