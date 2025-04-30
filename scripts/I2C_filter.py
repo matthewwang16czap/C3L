@@ -1,6 +1,7 @@
 import json
 import math
 import argparse
+from utils import add_image_token
 
 
 def extract_top_k_percent_conversations(args):
@@ -47,8 +48,13 @@ def extract_top_k_percent_conversations(args):
             new_conversations = []
             for i, conv in enumerate(conversations):
                 if (sample_idx, i) in selected:
-                    new_conversations.append(conversations[i - 1])  # human
-                    new_conversations.append(conv)  # gpt
+                    human_turn = conversations[i - 1]
+                    human_turn["value"] = add_image_token(
+                        human_turn["value"], args.mm_use_im_start_end
+                    )
+                    gpt_turn = conv
+                    new_conversations.append(human_turn)
+                    new_conversations.append(gpt_turn)
             item["conversations"] = new_conversations
             output_data.append(item)
 
@@ -62,6 +68,9 @@ def extract_top_k_percent_conversations(args):
                 if (sample_idx, i) in selected:
                     # Create a new item per turn
                     human_turn = conversations[i - 1]
+                    human_turn["value"] = add_image_token(
+                        human_turn["value"], args.mm_use_im_start_end
+                    )
                     gpt_turn = conv
 
                     new_item = {
@@ -83,6 +92,7 @@ def extract_top_k_percent_conversations(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--mm-use-im-start-end", type=bool, default=False)
     parser.add_argument(
         "--question-file", type=str, default="./C3L/data/questions.jsonl"
     )

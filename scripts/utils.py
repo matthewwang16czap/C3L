@@ -23,20 +23,23 @@ def get_chunk(lst, n, k):
     return np.array_split(lst, n)[k]
 
 
+def add_image_token(qs, mm_use_im_start_end):
+    # from model.config
+    if mm_use_im_start_end:
+        return (
+            DEFAULT_IM_START_TOKEN
+            + DEFAULT_IMAGE_TOKEN
+            + DEFAULT_IM_END_TOKEN
+            + "\n"
+            + qs
+        )
+    else:
+        return DEFAULT_IMAGE_TOKEN + "\n" + qs
+
+
 def tokenize_input(qs, has_image, tokenizer, mm_use_im_start_end, conv):
     if has_image:
-        # from model.config
-        if mm_use_im_start_end:
-            qs = (
-                DEFAULT_IM_START_TOKEN
-                + DEFAULT_IMAGE_TOKEN
-                + DEFAULT_IM_END_TOKEN
-                + "\n"
-                + qs
-            )
-        else:
-            qs = DEFAULT_IMAGE_TOKEN + "\n" + qs
-
+        qs = add_image_token(qs, mm_use_im_start_end)
     conv.append_message(conv.roles[0], qs)
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
