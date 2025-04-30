@@ -4,13 +4,11 @@ from torch.utils.data import Dataset, DataLoader
 import argparse
 import os
 import json
-from llava.conversation import conv_templates, SeparatorStyle
+from llava.conversation import conv_templates
 from llava.model.builder import load_pretrained_model
 from llava.utils import disable_torch_init
 from llava.mm_utils import (
-    tokenizer_image_token,
     get_model_name_from_path,
-    KeywordsStoppingCriteria,
 )
 import bitsandbytes as bnb
 
