@@ -180,14 +180,18 @@ def contrastive_learning_train(args):
             anchor_ids = batch["anchor_ids"]
             positive_ids = batch["positive_ids"]
             negative_idss = batch["negative_idss"]
-            anchor_embed = model.model.embed_tokens(anchor_ids)  # (B, L, D)
+            anchor_embed = model.model.embed_tokens(
+                anchor_ids.to(args.device)
+            )  # (B, L, D)
             anchor_mask = (anchor_ids != tokenizer.pad_token_id).float()  # (B, L)
             anchor_embedding = text_proj(
                 anchor_embed.to(args.device), mask=anchor_mask.to(args.device)
             ).unsqueeze(
                 1
             )  # (B, 1, D)
-            positive_embed = model.model.embed_tokens(positive_ids)  # (B, L, D)
+            positive_embed = model.model.embed_tokens(
+                positive_ids.to(args.device)
+            )  # (B, L, D)
             positive_mask = (positive_ids != tokenizer.pad_token_id).float()  # (B, L)
             positive_embedding = text_proj(
                 positive_embed.to(args.device), mask=positive_mask.to(args.device)
@@ -196,7 +200,9 @@ def contrastive_learning_train(args):
             )  # (B, 1, D)
             negative_embeddings = []
             for negative_ids in negative_idss:
-                negative_embed = model.model.embed_tokens(negative_ids)  # (B, L, D)
+                negative_embed = model.model.embed_tokens(
+                    negative_ids.to(args.device)
+                )  # (B, L, D)
                 megative_mask = (
                     negative_ids != tokenizer.pad_token_id
                 ).float()  # (B, L)
@@ -221,6 +227,7 @@ def contrastive_learning_train(args):
             print(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item()}")
 
     # Save the model (including the fine-tuned weights)
+    os.makedirs(args.output_dir, exist_ok=True)
     model.config.save_pretrained(args.output_dir)
     model.save_pretrained(args.output_dir)
     # Save the affine layer separately
@@ -230,7 +237,7 @@ def contrastive_learning_train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model-path", type=str, default="/home/matthewwang16czap/models/llava-v1.5-7b"
+        "--model-path", type=str, default="/home/matthew/models/llava-v1.5-7b"
     )
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument(
