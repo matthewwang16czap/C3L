@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 import argparse
 import os
@@ -10,8 +11,9 @@ from llava.utils import disable_torch_init
 from llava.mm_utils import (
     get_model_name_from_path,
 )
-from C3L.scripts.utils import tokenize_input
+from utils import tokenize_input
 import pandas as pd
+import bitsandbytes as bnb
 
 
 class ContrastiveDataset(Dataset):
@@ -38,7 +40,7 @@ class ContrastiveDataset(Dataset):
             question = conversations[i]["value"]
             answer = conversations[i + 1]["value"]
             conv = conv_templates[self.conv_mode].copy()
-            qa = f"{self.conv.roles[0]}: {question} {self.conv.roles[1]}: {answer}"
+            qa = f"{conv.roles[0]}: {question} {conv.roles[1]}: {answer}"
             input_ids = tokenize_input(
                 qa,
                 False,
@@ -51,7 +53,6 @@ class ContrastiveDataset(Dataset):
         positive_idx = self.I2C.iloc[idx].idxmax()
         positive_id = negative_ids[positive_idx]
         negative_ids.pop(positive_idx)
-        negative_ids = torch.stack(negative_ids)
 
         anchor_id = tokenize_input(
             instruction,
@@ -61,41 +62,74 @@ class ContrastiveDataset(Dataset):
             conv,
         )
 
-        return anchor_id, positive_id, negative_ids
+        return {
+            "anchor_id": anchor_id,
+            "positive_id": positive_id,
+            "negative_ids": negative_ids,
+        }
+
+
+def make_contrastive_collate_fn(pad_token_id):
+    def collate_fn(batch):
+        anchor_ids = [item["anchor_id"] for item in batch]
+        positive_ids = [item["positive_id"] for item in batch]
+        negative_idss = [item["negative_ids"] for item in batch]
+
+        num_negs = len(negative_idss[0])
+        grouped_negatives = [
+            [sample[i] for sample in negative_idss] for i in range(num_negs)
+        ]
+
+        return {
+            "anchor_ids": torch.nn.utils.rnn.pad_sequence(
+                anchor_ids, batch_first=True, padding_value=pad_token_id
+            ),
+            "positive_ids": torch.nn.utils.rnn.pad_sequence(
+                positive_ids, batch_first=True, padding_value=pad_token_id
+            ),
+            "negative_idss": [
+                torch.nn.utils.rnn.pad_sequence(
+                    group, batch_first=True, padding_value=pad_token_id
+                )
+                for group in grouped_negatives
+            ],
+        }
+
+    return collate_fn
+
+
+class AffineTransformationLayer(nn.Module):
+    def __init__(self, embed_dim):
+        super().__init__()
+        self.proj = nn.Sequential(
+            nn.Linear(embed_dim, embed_dim),
+            nn.Tanh(),
+        )
+        nn.init.xavier_normal_(self.proj[0].weight)  # Xavier normal initialization
+        nn.init.zeros_(self.proj[0].bias)  # Initialize biases to zeros
+
+    def forward(self, x, mask=None):
+        # x: (B, L, D) where L = seq_len, D = embed_dim
+        x = self.proj(x)  # (B, L, D)
+        if mask is not None:
+            # mask: (B, L), 1 = valid, 0 = pad
+            mask = mask.unsqueeze(-1)  # (B, L, 1)
+            x = x * mask  # zero out padded embeddings
+            sum_x = x.sum(dim=1)  # (B, D)
+            count = mask.sum(dim=1).clamp(min=1e-6)  # (B, 1)
+            count = count.masked_fill(count == 0, 1)
+            return sum_x / count  # (B, D)
+        else:
+            return x.mean(dim=1)  # (B, D) if no mask
 
 
 def contrastive_loss(anchor, positive, negatives, temperature=0.2):
-    """
-    Args:
-        anchor: [B, 1, D]
-        positive: [B, 1, D]
-        negatives: [B, N, D]
-    Returns:
-        Scalar loss (mean over batch)
-    """
-
-    # Cosine similarity between anchor and positive → [B, 1]
-    pos_sim = F.cosine_similarity(anchor, positive, dim=-1)  # [B, 1]
-
-    # Cosine similarity between anchor and negatives → [B, N]
-    neg_sim = F.cosine_similarity(anchor, negatives, dim=-1)  # [B, N]
-
-    # Clamp similarities for stability
-    pos_sim = torch.clamp(pos_sim, -1.0, 1.0)
-    neg_sim = torch.clamp(neg_sim, -1.0, 1.0)
-
-    # Scale by temperature
-    pos_sim = pos_sim / temperature  # [B, 1]
-    neg_sim = neg_sim / temperature  # [B, N]
-
-    # Concatenate pos + neg → [B, 1+N]
-    sims = torch.cat([pos_sim, neg_sim], dim=1)
-
-    # Compute logsumexp over all similarities
-    denom = torch.logsumexp(sims, dim=1)  # [B]
-    loss = -pos_sim.squeeze(1) + denom  # [B]
-
-    return loss.mean()
+    # anchor: (B,1,D), positive: (B,1,D), negatives: (B,N,D)
+    sims_pos = F.cosine_similarity(anchor, positive, dim=-1)  # (B,1)
+    sims_neg = F.cosine_similarity(anchor, negatives, dim=-1)  # (B,N)
+    logits = torch.cat([sims_pos, sims_neg], dim=1) / temperature  # (B, 1+N)
+    labels = torch.zeros(logits.size(0), dtype=torch.long, device=logits.device)
+    return F.cross_entropy(logits, labels)
 
 
 def contrastive_learning_train(args):
@@ -108,45 +142,75 @@ def contrastive_learning_train(args):
         args.model_base,
         model_name,
         load_4bit=args.load_4bit,
-        use_flash_attn=False,
+        use_flash_attn=args.use_flash_attn,
         offload_folder="./offload",
     )
 
     # Freeze vision tower parameters
-    for param in model.get_vision_tower().parameters():
-        param.requires_grad = False
-    model.get_vision_tower().eval()
+    # for param in model.get_vision_tower().parameters():
+    #     param.requires_grad = False
+    # model.get_vision_tower().eval()
     model.train()
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-5)
+    text_proj = AffineTransformationLayer(embed_dim=4096).to(
+        dtype=model.model.embed_tokens.weight.dtype, device=args.device
+    )
+
+    optimizer = bnb.optim.Adam8bit(
+        list(model.model.embed_tokens.parameters()) + list(text_proj.parameters()),
+        lr=1e-5,
+        betas=(0.9, 0.95),
+    )
 
     # Create dataset and dataloader
     dataset = ContrastiveDataset(
         args.question_file, args.i2c_file, model.config, tokenizer, args.conv_mode
     )
-    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    collate_fn = make_contrastive_collate_fn(tokenizer.pad_token_id)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+    )
 
     # Training loop
     for epoch in range(args.epochs):
-        for batch_idx, (instruction, positive_id, negative_ids) in enumerate(
-            dataloader
-        ):
-            instruction_embedding = model.model.embed_tokens(instruction)
-            instruction_embedding = F.normalize(
-                instruction_embedding.mean(dim=1), p=2, dim=-1
-            )
-            positive_id_embedding = model.model.embed_tokens(positive_id)
-            positive_id_embedding = F.normalize(
-                positive_id_embedding.mean(dim=1), p=2, dim=-1
-            )
-            negative_ids_embedding = model.model.embed_tokens(negative_ids_embedding)
-            negative_ids_embedding = F.normalize(
-                negative_ids_embedding.mean(dim=1), p=2, dim=-1
-            )
+        for batch_idx, batch in enumerate(dataloader):
+            anchor_ids = batch["anchor_ids"]
+            positive_ids = batch["positive_ids"]
+            negative_idss = batch["negative_idss"]
+            anchor_embed = model.model.embed_tokens(anchor_ids)  # (B, L, D)
+            anchor_mask = (anchor_ids != tokenizer.pad_token_id).float()  # (B, L)
+            anchor_embedding = text_proj(
+                anchor_embed.to(args.device), mask=anchor_mask.to(args.device)
+            ).unsqueeze(
+                1
+            )  # (B, 1, D)
+            positive_embed = model.model.embed_tokens(positive_ids)  # (B, L, D)
+            positive_mask = (positive_ids != tokenizer.pad_token_id).float()  # (B, L)
+            positive_embedding = text_proj(
+                positive_embed.to(args.device), mask=positive_mask.to(args.device)
+            ).unsqueeze(
+                1
+            )  # (B, 1, D)
+            negative_embeddings = []
+            for negative_ids in negative_idss:
+                negative_embed = model.model.embed_tokens(negative_ids)  # (B, L, D)
+                megative_mask = (
+                    negative_ids != tokenizer.pad_token_id
+                ).float()  # (B, L)
+                negative_embeddings.append(
+                    text_proj(
+                        negative_embed.to(args.device),
+                        mask=megative_mask.to(args.device),
+                    )
+                )  # (B, D)
+            negative_embeddings = torch.stack(negative_embeddings, dim=1)
             loss = contrastive_loss(
-                instruction_embedding,
-                positive_id_embedding,
-                negative_ids_embedding,
+                anchor_embedding,
+                positive_embedding,
+                negative_embeddings,
                 temperature=args.temperature,
             )
 
@@ -156,22 +220,34 @@ def contrastive_learning_train(args):
 
             print(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item()}")
 
+    # Save the model (including the fine-tuned weights)
+    model.config.save_pretrained(args.output_dir)
+    model.save_pretrained(args.output_dir)
+    # Save the affine layer separately
+    torch.save(text_proj.state_dict(), args.output_dir + "/affine_layer.pth")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model-path", type=str, default="/home/matthew/models/llava-v1.5-7b"
+        "--model-path", type=str, default="/home/matthewwang16czap/models/llava-v1.5-7b"
     )
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument(
         "--question-file", type=str, default="./C3L/data/questions.jsonl"
     )
     parser.add_argument("--i2c-file", type=str, default="./C3L/data/I2C.csv")
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="./checkpoints/llava-v1.5-7b-contrastive-learned",
+    )
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
     parser.add_argument("--temperature", type=float, default=0.2)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--load-4bit", type=bool, default=False)
+    parser.add_argument("--use-flash-attn", type=bool, default=False)
     parser.add_argument("--device", type=str, default="cuda")
     args = parser.parse_args()
 

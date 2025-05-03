@@ -121,7 +121,7 @@ def questions_gen(args):
         args.model_base,
         model_name,
         load_4bit=args.load_4bit,
-        use_flash_attn=False,
+        use_flash_attn=args.use_flash_attn,
         offload_folder="./offload",
     )
 
@@ -132,17 +132,6 @@ def questions_gen(args):
 
     question_file = os.path.expanduser(args.question_file)
     os.makedirs(os.path.dirname(question_file), exist_ok=True)
-
-    # get image tensor shape
-    image_tensor_shape = image_processor.preprocess(
-        Image.open(
-            os.path.join(
-                Path(args.dataset_path).expanduser(),
-                json.loads(datasets[0])["image"],
-            )
-        ),
-        return_tensors="pt",
-    )["pixel_values"][0].shape
 
     # Get last processed index
     start_index = get_last_index(question_file)
@@ -227,6 +216,7 @@ if __name__ == "__main__":
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--load-4bit", type=bool, default=False)
+    parser.add_argument("--use-flash-attn", type=bool, default=False)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--batch-size", type=int, default=4)
     args = parser.parse_args()

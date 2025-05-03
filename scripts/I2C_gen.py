@@ -178,17 +178,6 @@ def I2C_gen(args):
         datasets = f.readlines()
     datasets = get_chunk(datasets, args.num_chunks, args.chunk_idx)
 
-    # get image tensor shape
-    image_tensor_shape = image_processor.preprocess(
-        Image.open(
-            os.path.join(
-                Path(args.dataset_path).expanduser(),
-                json.loads(datasets[0])["image"],
-            )
-        ),
-        return_tensors="pt",
-    )["pixel_values"][0].shape
-
     # CSV file path
     csv_file_path = os.path.expanduser(args.save_path)
 
@@ -250,6 +239,7 @@ if __name__ == "__main__":
     parser.add_argument("--top_p", type=float, default=None)
     parser.add_argument("--num_beams", type=int, default=1)
     parser.add_argument("--load-4bit", type=bool, default=False)
+    parser.add_argument("--use-flash-attn", type=bool, default=False)
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--batch-size", type=int, default=4)
     args = parser.parse_args()
