@@ -224,12 +224,13 @@ def contrastive_learning_train(args):
             loss.backward()  # Compute gradients
             optimizer.step()  # Update parameters
 
-            print(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item()}")
+            # print(f"Epoch {epoch}, Batch {batch_idx}, Loss: {loss.item()}")
+        print(f"Epoch {epoch}, Loss: {loss.item()}")
 
     # Save the model (including the fine-tuned weights)
     os.makedirs(args.output_dir, exist_ok=True)
-    model.config.save_pretrained(args.output_dir)
     model.save_pretrained(args.output_dir)
+    tokenizer.save_pretrained(args.output_dir)
     # Save the affine layer separately
     torch.save(text_proj.state_dict(), args.output_dir + "/affine_layer.pth")
 
@@ -252,7 +253,7 @@ if __name__ == "__main__":
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=1)
+    parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--load-4bit", type=bool, default=False)
     parser.add_argument("--use-flash-attn", type=bool, default=False)
     parser.add_argument("--device", type=str, default="cuda")
