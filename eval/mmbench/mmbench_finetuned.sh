@@ -1,11 +1,14 @@
 #!/bin/bash
 
 SPLIT="mmbench_dev_20230712"
+MODEL_NAME="llava-v1.5-7b-finetuned-lora"
+BASE_MODEL_NAME="llava-v1.5-7b"
 
 python -m llava.eval.model_vqa_mmbench \
-    --model-path /home/matthew/models/llava-v1.5-7b \
+    --model-path ./checkpoints/$MODEL_NAME \
+    --model-base /home/matthew/models/$BASE_MODEL_NAME \
     --question-file ./playground/data/eval/mmbench/$SPLIT.tsv \
-    --answers-file ./playground/data/eval/mmbench/answers/$SPLIT/llava-v1.5-7b.jsonl \
+    --answers-file ./playground/data/eval/mmbench/answers/$SPLIT/$MODEL_NAME.jsonl \
     --single-pred-prompt \
     --temperature 0 \
     --conv-mode llava_v1
@@ -16,4 +19,8 @@ python scripts/convert_mmbench_for_submission.py \
     --annotation-file ./playground/data/eval/mmbench/$SPLIT.tsv \
     --result-dir ./playground/data/eval/mmbench/answers/$SPLIT \
     --upload-dir ./playground/data/eval/mmbench/answers_upload/$SPLIT \
-    --experiment llava-v1.5-7b
+    --experiment $MODEL_NAME \
+
+python ./C3L/eval/mmbench/mmbench_get_accuracy.py \
+    --file-path ./playground/data/eval/mmbench/answers_upload/$SPLIT/$MODEL_NAME.xlsx  \
+    > ./C3L/eval/mmbench/results/mmbench_$MODEL_NAME.txt 2>&1

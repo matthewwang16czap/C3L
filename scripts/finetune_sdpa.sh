@@ -1,7 +1,7 @@
 #!/bin/bash
 
 /home/matthew/miniconda3/envs/rocm/bin/deepspeed ./C3L/scripts/train_sdpa.py \
-    --lora_enable True --lora_r 64 --lora_alpha 256 --mm_projector_lr 1e-5 \
+    --lora_enable True --lora_r 64 --lora_alpha 256 --mm_projector_lr 2e-5 \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path /home/matthew/models/llava-v1.5-7b \
     --version v1 \
@@ -25,7 +25,7 @@
     --save_strategy "steps" \
     --save_steps 50000 \
     --save_total_limit 1 \
-    --learning_rate 1e-4 \
+    --learning_rate 2e-4 \
     --weight_decay 0. \
     --warmup_ratio 0.03 \
     --lr_scheduler_type "cosine" \
