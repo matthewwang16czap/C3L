@@ -10,6 +10,8 @@ Commands for setup conda env:
 conda install -c nvidia cuda-compiler
 
 conda install conda-forge::libstdcxx-ng
+
+pip install fiftyone
 ```
 
 Install LLaVA.
