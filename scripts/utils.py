@@ -49,6 +49,41 @@ def tokenize_input(qs, has_image, tokenizer, mm_use_im_start_end, conv):
     return input_ids
 
 
+def load_pretrained_model_from_path(
+    model_path, model_base, load_4bit, use_flash_attn, torch_init=False
+):
+    if not torch_init:
+        disable_torch_init()
+    model_name = get_model_name_from_path(os.path.expanduser(model_path))
+    tokenizer, model, image_processor, context_len = load_pretrained_model(
+        model_path,
+        model_base,
+        model_name,
+        load_4bit=load_4bit,
+        use_flash_attn=use_flash_attn,
+        offload_folder="./offload",
+    )
+    return tokenizer, model, image_processor, context_len
+
+
+def get_image_tensors(dataset_path, image_processor, batch):
+    image_tensors = []
+    for data_sample in batch:
+        image_path = os.path.join(
+            Path(dataset_path).expanduser(),
+            data_sample["image"],
+        )
+        try:
+            image = Image.open(image_path)
+            image_tensor = image_processor.preprocess(image, return_tensors="pt")[
+                "pixel_values"
+            ][0]
+            image_tensors.append(image_tensor)
+        except Exception as e:
+            print(f"Error processing image: {e}")
+    return image_tensors
+
+
 instruction_prompts = [
     "Based on the given image, generate 5 in-depth reasoning questions and then answer them.",
     "Given the image, generate 5 in-depth reasoning questions and answers.",

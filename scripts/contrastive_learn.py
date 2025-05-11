@@ -253,7 +253,7 @@ if __name__ == "__main__":
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
     parser.add_argument("--temperature", type=float, default=0.2)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=30)
+    parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--load-4bit", type=bool, default=False)
     parser.add_argument("--use-flash-attn", type=bool, default=False)
     parser.add_argument("--device", type=str, default="cuda")

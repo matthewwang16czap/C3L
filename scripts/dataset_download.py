@@ -1,38 +1,40 @@
-import fiftyone.zoo as foz
 import fiftyone as fo
+import fiftyone.zoo as foz
 from PIL import Image
 
-# Allow PIL to load incomplete images if needed (optional workaround)
-# from PIL import ImageFile
-# ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+def verify_and_clean(dataset: fo.Dataset) -> int:
+    """
+    Verifies all images in the given FiftyOne dataset.
+    Deletes any samples whose files fail verification.
+    Returns the number of deleted (bad) samples.
+    """
+    bad_ids = []
+    for sample in dataset:
+        try:
+            with Image.open(sample.filepath) as img:
+                img.verify()
+        except Exception as e:
+            print(f"Invalid image: {sample.filepath} ({e})")
+            bad_ids.append(sample.id)
+
+    if bad_ids:
+        dataset.delete_samples(bad_ids)
+    return len(bad_ids)
 
 
-def is_valid_image(path):
-    try:
-        with Image.open(path) as img:
-            img.verify()  # does not load full image but checks header/integrity
-        return True
-    except Exception as e:
-        print(f"Invalid image: {path} ({e})")
-        return False
+def main():
+    # 1. Load both splits
+    train_ds = foz.load_zoo_dataset("coco-2014", split="train")
+    val_ds = foz.load_zoo_dataset("coco-2014", split="validation")
+
+    # 2. Verify & clean each
+    n_bad_train = verify_and_clean(train_ds)
+    print(f"Train: deleted {n_bad_train} bad images.")
+
+    n_bad_val = verify_and_clean(val_ds)
+    print(f"Validation: deleted {n_bad_val} bad images.")
 
 
-# Load dataset
-dataset = foz.load_zoo_dataset("coco-2014", split="train", max_samples=4000)
-
-# Track bad sample IDs
-bad_ids = []
-
-for sample in dataset:
-    if not is_valid_image(sample.filepath):
-        bad_ids.append(sample.id)
-
-# Delete bad samples
-if bad_ids:
-    print(f"Deleting {len(bad_ids)} bad images...")
-    dataset.delete_samples(bad_ids)
-else:
-    print("No corrupted images found.")
-
-# (Optional) launch the app to view what's left
-# session = fo.launch_app(dataset)
+if __name__ == "__main__":
+    main()

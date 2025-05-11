@@ -4,18 +4,18 @@ import os
 import json
 from tqdm import tqdm
 from llava.conversation import conv_templates, SeparatorStyle
-from llava.model.builder import load_pretrained_model
-from llava.utils import disable_torch_init
-from llava.mm_utils import get_model_name_from_path
-from PIL import Image
 import re
 import random
-from pathlib import Path
 from C3L.scripts.utils import (
     get_chunk,
     tokenize_input,
+    load_pretrained_model_from_path,
+    get_image_tensors,
     instruction_prompts,
 )
+import random
+
+random.seed(42)
 
 
 def inference(
@@ -112,23 +112,21 @@ def get_last_index(jsonl_file):
 
 
 def questions_gen(args):
-    # Model
-    disable_torch_init()
-    model_path = os.path.expanduser(args.model_path)
-    model_name = get_model_name_from_path(model_path)
-    tokenizer, model, image_processor, context_len = load_pretrained_model(
-        model_path,
+    # Model setup
+    tokenizer, model, image_processor, context_len = load_pretrained_model_from_path(
+        args.model_path,
         args.model_base,
-        model_name,
-        load_4bit=args.load_4bit,
-        use_flash_attn=args.use_flash_attn,
-        offload_folder="./offload",
+        args.load_4bit,
+        args.use_flash_attn,
+        torch_init=False,
     )
 
     # Dataset
     with open(os.path.expanduser(args.dataset_file), "r") as f:
         datasets = f.readlines()
     datasets = get_chunk(datasets, args.num_chunks, args.chunk_idx)
+    if args.dataset_size is not None and args.dataset_size < len(datasets):
+        datasets = random.sample(datasets, args.dataset_size)
 
     question_file = os.path.expanduser(args.question_file)
     os.makedirs(os.path.dirname(question_file), exist_ok=True)
@@ -140,20 +138,9 @@ def questions_gen(args):
         with tqdm(total=len(datasets), initial=start_index) as pbar:
             for i in range(start_index, len(datasets), args.batch_size):
                 batch = [json.loads(line) for line in datasets[i : i + args.batch_size]]
-                image_tensors = []
-                for data_sample in batch:
-                    image_path = os.path.join(
-                        Path(args.dataset_path).expanduser(),
-                        data_sample["image"],
-                    )
-                    try:
-                        image = Image.open(image_path)
-                        image_tensor = image_processor.preprocess(
-                            image, return_tensors="pt"
-                        )["pixel_values"][0]
-                        image_tensors.append(image_tensor)
-                    except Exception as e:
-                        print(f"Error processing image: {e}")
+                image_tensors = get_image_tensors(
+                    args.dataset_path, image_processor, batch
+                )
 
                 # 1 stages' max token size
                 max_new_tokens = [512]
@@ -207,6 +194,11 @@ if __name__ == "__main__":
         "--dataset-path",
         type=str,
         default="/home/matthew/fiftyone/coco-2014/train/data",
+    )
+    parser.add_argument(
+        "--dataset-size",
+        type=int,
+        default=6000,
     )
     parser.add_argument("--questions-num", type=int, default=5)
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
