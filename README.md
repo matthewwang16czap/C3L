@@ -9,7 +9,7 @@ Commands for setup conda env:
 ```bash
 conda install -c nvidia cuda-compiler
 conda install conda-forge::libstdcxx-ng
-pip install fiftyone protobuf
+pip install fiftyone protobuf==3.20
 ```
 
 Install LLaVA.
