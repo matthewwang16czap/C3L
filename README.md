@@ -4,6 +4,9 @@ First go to https://github.com/haotian-liu/LLaVA.
 Then clone this repository under LLaVA repository.
 Then edit pyproject.toml to remove the versions of torch, torchvision, accelerate.
 
+Then remove "metrics" at File "/home/matthewwang16czap/projects/LLaVA/llava/train/llava_trainer.py", line 249, in _save_checkpoint
+super(LLaVATrainer, self)._save_checkpoint(model, trial, metrics)
+
 Commands for setup conda env:
 
 ```bash
