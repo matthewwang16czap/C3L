@@ -2,7 +2,7 @@
 
 First go to https://github.com/haotian-liu/LLaVA.
 Then clone this repository under LLaVA repository.
-Then edit pyproject.toml to remove the versions of torch and torchvision.
+Then edit pyproject.toml to remove the versions of torch, torchvision, accelerate.
 
 Commands for setup conda env:
 
