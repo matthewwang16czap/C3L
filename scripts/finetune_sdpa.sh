@@ -1,7 +1,7 @@
 #!/bin/bash
 
 /home/matthewwang16czap/miniconda3/envs/llava/bin/deepspeed ./C3L/scripts/train_sdpa.py \
-    --lora_enable True --lora_r 16 --lora_alpha 64 --mm_projector_lr 5e-6 \
+    --lora_enable True --lora_r 16 --lora_alpha 64 --mm_projector_lr 2e-5 \
     --deepspeed ./scripts/zero3.json \
     --model_name_or_path /home/matthewwang16czap/models/llava-v1.5-7b \
     --version v1 \
@@ -25,7 +25,7 @@
     --save_strategy "steps" \
     --save_steps 50000 \
     --save_total_limit 1 \
-    --learning_rate 5e-5 \
+    --learning_rate 2e-4 \
     --weight_decay 0. \
     --warmup_ratio 0.03 \
     --lr_scheduler_type "cosine" \
