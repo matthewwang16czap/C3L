@@ -238,7 +238,7 @@ def contrastive_learning_train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model-path", type=str, default="/home/matthew/models/llava-v1.5-7b"
+        "--model-path", type=str, default="/home/matthewwang16czap/models/llava-v1.5-7b"
     )
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument(

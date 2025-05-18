@@ -6,7 +6,7 @@ BASE_MODEL_NAME="llava-v1.5-7b"
 
 python -m llava.eval.model_vqa_mmbench \
     --model-path ./checkpoints/$MODEL_NAME \
-    --model-base /home/matthew/models/$BASE_MODEL_NAME \
+    --model-base /home/matthewwang16czap/models/$BASE_MODEL_NAME \
     --question-file ./playground/data/eval/mmbench/$SPLIT.tsv \
     --answers-file ./playground/data/eval/mmbench/answers/$SPLIT/$MODEL_NAME.jsonl \
     --single-pred-prompt \

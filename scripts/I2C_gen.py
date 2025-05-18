@@ -6,7 +6,7 @@ import json
 from tqdm import tqdm
 from llava.conversation import conv_templates
 import csv
-from C3L.scripts.utils import (
+from utils import (
     get_chunk,
     tokenize_input,
     load_pretrained_model_from_path,
@@ -192,7 +192,7 @@ def I2C_gen(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model-path", type=str, default="/home/matthew/models/llava-v1.5-7b"
+        "--model-path", type=str, default="/home/matthewwang16czap/models/llava-v1.5-7b"
     )
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument(
@@ -202,7 +202,7 @@ if __name__ == "__main__":
         "--dataset-path", type=str, default="~/fiftyone/coco-2014/train/data"
     )
     parser.add_argument("--questions-num", type=int, default=5)
-    parser.add_argument("--save-path", type=str, default="./C3L/data/I2C_test.csv")
+    parser.add_argument("--save-path", type=str, default="./C3L/data/I2C.csv")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
     parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)

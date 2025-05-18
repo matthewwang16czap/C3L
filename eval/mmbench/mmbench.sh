@@ -4,7 +4,7 @@ SPLIT="mmbench_dev_20230712"
 MODEL_NAME="llava-v1.5-7b"
 
 python -m llava.eval.model_vqa_mmbench \
-    --model-path /home/matthew/models/$MODEL_NAME \
+    --model-path /home/matthewwang16czap/models/$MODEL_NAME \
     --question-file ./playground/data/eval/mmbench/$SPLIT.tsv \
     --answers-file ./playground/data/eval/mmbench/answers/$SPLIT/$MODEL_NAME.jsonl \
     --single-pred-prompt \

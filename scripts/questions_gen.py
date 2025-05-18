@@ -6,14 +6,14 @@ from tqdm import tqdm
 from llava.conversation import conv_templates, SeparatorStyle
 import re
 import random
-from C3L.scripts.utils import (
+from utils import (
     get_chunk,
     tokenize_input,
     load_pretrained_model_from_path,
     get_image_tensors,
     instruction_prompts,
 )
-import random
+import numpy as np
 
 random.seed(42)
 
@@ -40,7 +40,9 @@ def inference(
         )
         input_ids_list.append(input_ids)
 
-    input_ids = torch.nn.utils.rnn.pad_sequence(input_ids_list, batch_first=True)
+    input_ids = torch.nn.utils.rnn.pad_sequence(
+        input_ids_list, batch_first=True, padding_value=tokenizer.pad_token_id
+    )
 
     stop_str = (
         convs[0].sep if convs[0].sep_style != SeparatorStyle.TWO else convs[0].sep2
@@ -126,7 +128,7 @@ def questions_gen(args):
         datasets = f.readlines()
     datasets = get_chunk(datasets, args.num_chunks, args.chunk_idx)
     if args.dataset_size is not None and args.dataset_size < len(datasets):
-        datasets = random.sample(datasets, args.dataset_size)
+        datasets = np.random.choice(datasets, size=args.dataset_size, replace=False)
 
     question_file = os.path.expanduser(args.question_file)
     os.makedirs(os.path.dirname(question_file), exist_ok=True)
@@ -183,7 +185,7 @@ def questions_gen(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--model-path", type=str, default="/home/matthew/models/llava-v1.5-7b"
+        "--model-path", type=str, default="/home/matthewwang16czap/models/llava-v1.5-7b"
     )
     parser.add_argument("--model-base", type=str, default=None)
     parser.add_argument(
@@ -193,7 +195,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset-path",
         type=str,
-        default="/home/matthew/fiftyone/coco-2014/train/data",
+        default="/home/matthewwang16czap/fiftyone/coco-2014/train/data",
     )
     parser.add_argument(
         "--dataset-size",

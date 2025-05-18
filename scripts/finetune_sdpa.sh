@@ -1,22 +1,22 @@
 #!/bin/bash
 
-/home/matthew/miniconda3/envs/rocm/bin/deepspeed ./C3L/scripts/train_sdpa.py \
+/home/matthewwang16czap/miniconda3/envs/llava/bin/deepspeed ./C3L/scripts/train_sdpa.py \
     --lora_enable True --lora_r 16 --lora_alpha 64 --mm_projector_lr 5e-6 \
     --deepspeed ./scripts/zero3.json \
-    --model_name_or_path /home/matthew/models/llava-v1.5-7b \
+    --model_name_or_path /home/matthewwang16czap/models/llava-v1.5-7b \
     --version v1 \
     --data_path ./C3L/data/filtered_questions.json \
-    --image_folder /home/matthew/fiftyone/coco-2014/train/data \
-    --vision_tower /home/matthew/models/clip-vit-large-patch14-336 \
+    --image_folder /home/matthewwang16czap/fiftyone/coco-2014/train/data \
+    --vision_tower /home/matthewwang16czap/models/clip-vit-large-patch14-336 \
     --mm_projector_type mlp2x_gelu \
     --mm_vision_select_layer -2 \
     --mm_use_im_start_end False \
     --mm_use_im_patch_token False \
     --image_aspect_ratio pad \
     --group_by_modality_length True \
-    --bf16 False \
+    --bf16 True \
     --tf32 False \
-    --fp16 True \
+    --fp16 False \
     --output_dir ./checkpoints/llava-v1.5-7b-finetuned-lora \
     --num_train_epochs 1 \
     --per_device_train_batch_size 4 \
