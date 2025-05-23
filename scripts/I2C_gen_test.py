@@ -14,25 +14,43 @@ from utils import (
 )
 
 
-def compute_answer_prob(scores, answer_ids, pad_token_id):
-    batch_size, scores_seq_len, vocab_size = scores.shape
-    _, answer_seq_len = answer_ids.shape
+def score_with_gaussian_weighting(scores, answer_ids, pad_token_id=None, sigma=1.0):
+    """
+    scores: Tensor (B, T_pred, V)
+    answer_ids: Tensor (B, T_true)
+    Returns: Tensor (B, T_true) of weighted probabilities per token
+    """
+    B, T_pred, V = scores.shape
+    _, T_true = answer_ids.shape
 
-    if answer_seq_len > scores_seq_len:
-        pad_size = answer_seq_len - scores_seq_len
-        scores = F.pad(scores, (0, 0, 0, pad_size), value=0)
-    elif answer_seq_len < scores_seq_len:
-        scores = scores[:, :answer_seq_len, :]
+    device = scores.device
 
-    gathered_scores = (
-        scores.gather(2, answer_ids.unsqueeze(-1))
-        .squeeze(-1)
-        .masked_fill(answer_ids == pad_token_id, 0)
-    )  # (batch, seq_len)
+    # (B, T_pred, V) → (B, T_pred, V) log-probabilities
+    log_probs = F.log_softmax(scores, dim=-1)
 
-    dist = F.softmax(gathered_scores, dim=-1)
+    # === Gather log probs of the correct token across all predicted positions ===
+    # (B, T_true) → (B, 1, T_true) → (B, T_pred, T_true)
+    index = answer_ids.unsqueeze(1).expand(B, T_pred, T_true)
+    token_log_probs = log_probs.gather(2, index)  # (B, T_pred, T_true)
 
-    return dist
+    # === Compute Gaussian weights centered at true positions ===
+    # (T_pred,) - all predicted positions
+    pred_pos = torch.arange(T_pred, device=device).view(1, T_pred, 1)  # (1, T_pred, 1)
+    true_pos = torch.arange(T_true, device=device).view(1, 1, T_true)  # (1, 1, T_true)
+
+    # (1, T_pred, T_true)
+    weights = torch.exp(-((pred_pos - true_pos) ** 2) / (2 * sigma**2))
+    # weights = weights / weights.sum(dim=1, keepdim=True)  # Normalize over T_pred
+
+    # === Mask out padding tokens if needed ===
+    if pad_token_id is not None:
+        pad_mask = (answer_ids == pad_token_id).view(B, 1, T_true)  # (B, 1, T_true)
+        token_log_probs = token_log_probs.masked_fill(pad_mask, float("-inf"))
+
+    # === Compute weighted sum of probabilities for each token ===
+    weighted_probs = (token_log_probs.exp() * weights).sum(dim=1)  # (B, T_true)
+
+    return weighted_probs  # You can also .mean(dim=1) to get per-sentence score
 
 
 def compute_i2c(args, model, tokenizer, image_tensors, batch_data, pad_token_id):
@@ -105,7 +123,9 @@ def compute_i2c(args, model, tokenizer, image_tensors, batch_data, pad_token_id)
             )
             scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2).cpu()
 
-        s_a_v = compute_answer_prob(scores, answer_ids, pad_token_id)
+        s_a_v = score_with_gaussian_weighting(
+            scores, answer_ids, pad_token_id
+        ).nan_to_num(nan=0.0)
         s_a_vs.append(s_a_v)
 
         # S(A): Direct Answer Scores (without image)
@@ -124,20 +144,16 @@ def compute_i2c(args, model, tokenizer, image_tensors, batch_data, pad_token_id)
             )
             scores = torch.stack(outputs.scores, dim=0).permute(1, 0, 2).cpu()
 
-        s_a = compute_answer_prob(scores, answer_ids, pad_token_id)
+        s_a = score_with_gaussian_weighting(
+            scores, answer_ids, pad_token_id
+        ).nan_to_num(nan=0.0)
         s_as.append(s_a)
 
-    kl_divs = []
+    results = []
     for s_a_v, s_a in zip(s_a_vs, s_as):
-        min_len = min(s_a_v.shape[1], s_a.shape[1])
-        s_a_v = s_a_v[:, :min_len]
-        s_a = s_a[:, :min_len]
-        kl = F.kl_div(
-            F.log_softmax(s_a_v, dim=-1), s_a, reduction="none", log_target=False
-        ).sum(dim=-1)
-        kl_divs.append(kl)
-    result = torch.nan_to_num(torch.stack(kl_divs, dim=-1), nan=0.0)
-    return result
+        diff = torch.abs(s_a_v - s_a).sum(dim=1)
+        results.append(diff)
+    return torch.stack(results, dim=-1)
 
 
 def get_last_index(csv_file_path):
@@ -165,7 +181,7 @@ def I2C_gen(args):
     datasets = get_chunk(datasets, args.num_chunks, args.chunk_idx)
 
     # CSV file path
-    csv_file_path = os.path.expanduser(args.save_path)
+    csv_file_path = os.path.expanduser(args.i2c_file)
 
     # Determine the last valid processed index
     start_index = get_last_index(csv_file_path)
@@ -203,7 +219,7 @@ if __name__ == "__main__":
         "--dataset-path", type=str, default="~/fiftyone/coco-2014/train/data"
     )
     parser.add_argument("--questions-num", type=int, default=5)
-    parser.add_argument("--save-path", type=str, default="./C3L/data/I2C.csv")
+    parser.add_argument("--i2c-file", type=str, default="./C3L/data/I2C_test.csv")
     parser.add_argument("--conv-mode", type=str, default="llava_v1")
     parser.add_argument("--num-chunks", type=int, default=1)
     parser.add_argument("--chunk-idx", type=int, default=0)
@@ -213,7 +229,7 @@ if __name__ == "__main__":
     parser.add_argument("--load-4bit", type=bool, default=False)
     parser.add_argument("--use-flash-attn", type=bool, default=False)
     parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=2)
     args = parser.parse_args()
 
     I2C_gen(args)

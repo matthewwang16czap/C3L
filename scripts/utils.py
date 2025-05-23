@@ -37,9 +37,13 @@ def add_image_token(qs, mm_use_im_start_end):
         return DEFAULT_IMAGE_TOKEN + "\n" + qs
 
 
-def tokenize_input(qs, has_image, tokenizer, mm_use_im_start_end, conv):
+def tokenize_input(qs, has_image, tokenizer, mm_use_im_start_end, conv=None):
     if has_image:
         qs = add_image_token(qs, mm_use_im_start_end)
+    if conv is None:
+        return tokenizer_image_token(
+            qs, tokenizer, IMAGE_TOKEN_INDEX, return_tensors="pt"
+        )
     conv.append_message(conv.roles[0], qs)
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
