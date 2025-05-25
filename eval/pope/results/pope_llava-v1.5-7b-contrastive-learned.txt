@@ -1,12 +1,12 @@
 Category: popular, # samples: 3000
 TP	FP	TN	FN	
-1188	70	1430	312
-Accuracy: 0.8726666666666667
-Precision: 0.9443561208267091
+1188	69	1431	312
+Accuracy: 0.873
+Precision: 0.9451073985680191
 Recall: 0.792
-F1 score: 0.8614938361131255
-Yes ratio: 0.41933333333333334
-0.861, 0.873, 0.944, 0.792, 0.419
+F1 score: 0.8618063112078347
+Yes ratio: 0.419
+0.862, 0.873, 0.945, 0.792, 0.419
 ====================================
 Category: adversarial, # samples: 3000
 TP	FP	TN	FN	

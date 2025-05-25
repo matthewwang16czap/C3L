@@ -1,2 +1,2 @@
-Valid predictions: 4349
-Accuracy: 71.44%
+Valid predictions: 4332
+Accuracy: 71.93%
