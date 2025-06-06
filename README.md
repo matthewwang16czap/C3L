@@ -2,7 +2,7 @@
 
 First go to https://github.com/haotian-liu/LLaVA.
 Then clone this repository under LLaVA repository.
-Then edit `pyproject.toml` to remove the versions of `torch`, `torchvision`, `accelerate`, `transformers`, `deepspeed`.
+Then edit `pyproject.toml` to edit the versions of `torch`, `torchvision`, `accelerate`, `transformers==4.50`, `deepspeed=0.17`.
 
 Then remove `metrics` arg at File "/home/username/projects/LLaVA/llava/train/llava_trainer.py", line 249, in \_save_checkpoint
 `super(LLaVATrainer, self)._save_checkpoint(model, trial, metrics)`
